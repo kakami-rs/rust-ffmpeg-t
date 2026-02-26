@@ -219,6 +219,37 @@ where
     }
 }
 
+pub fn input_with_dictionary_interrupt<P: AsRef<Path> + ?Sized, F>(
+    path: &P,
+    options: Dictionary,
+    closure: F,
+) -> Result<context::Input, Error>
+where
+    F: FnMut() -> bool,
+{
+    unsafe {
+        let mut ps = avformat_alloc_context();
+        let path = from_path(path);
+        let mut opts = options.disown();
+        (*ps).interrupt_callback = interrupt::new(Box::new(closure)).interrupt;
+        let res = avformat_open_input(&mut ps, path.as_ptr(), ptr::null_mut(), &mut opts);
+
+        Dictionary::own(opts);
+
+        match res {
+            0 => match avformat_find_stream_info(ps, ptr::null_mut()) {
+                r if r >= 0 => Ok(context::Input::wrap(ps)),
+                e => {
+                    avformat_close_input(&mut ps);
+                    Err(Error::from(e))
+                }
+            },
+
+            e => Err(Error::from(e)),
+        }
+    }
+}
+
 pub fn output<P: AsRef<Path> + ?Sized>(path: &P) -> Result<context::Output, Error> {
     unsafe {
         let mut ps = ptr::null_mut();
